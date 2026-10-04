@@ -103,26 +103,32 @@ After=network-online.target
 Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_GROUP
-WorkingDirectory="$PROJECT_DIR"
-EnvironmentFile="$PROJECT_DIR/.env"
+WorkingDirectory=$PROJECT_DIR
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONDONTWRITEBYTECODE=1
-UMask=0077
-ExecStart="$VENV_DIR/bin/python" "$PROJECT_DIR/main.py"
+ExecStart=$VENV_DIR/bin/python $PROJECT_DIR/main.py
 Restart=always
 RestartSec=5
 TimeoutStopSec=30
-NoNewPrivileges=true
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 run_as_root install -o root -g root -m 0644 "$SERVICE_TMP" "$SERVICE_FILE"
+if command -v systemd-analyze >/dev/null 2>&1; then
+  if ! run_as_root systemd-analyze verify "$SERVICE_FILE"; then
+    fail "systemd отклонил файл службы. Исправьте указанную выше ошибку и запустите bash start.sh ещё раз."
+  fi
+fi
 run_as_root systemctl daemon-reload
 run_as_root systemctl enable "$SERVICE_NAME" >/dev/null
-run_as_root systemctl restart "$SERVICE_NAME"
+run_as_root systemctl reset-failed "$SERVICE_NAME" >/dev/null 2>&1 || true
+if ! run_as_root systemctl restart "$SERVICE_NAME"; then
+  printf '%b\n' "${RED}[✗]${NC} Не удалось запустить systemd-службу."
+  run_as_root systemctl status "$SERVICE_NAME" --no-pager -l || true
+  run_as_root journalctl -u "$SERVICE_NAME" -n 50 --no-pager || true
+  exit 1
+fi
 sleep 2
 
 if ! run_as_root systemctl is-active --quiet "$SERVICE_NAME"; then
